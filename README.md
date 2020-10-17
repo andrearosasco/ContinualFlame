@@ -17,7 +17,7 @@ This module contains datasets normally used in the continual learning scenario. 
 - SplitMNIST - contains the standard MNIST dataset but it lets you select the classes to use during training
 # Examples
 ```python
-from contflame.dataset import SplitMNIST
+from cont_flame.dataset import SplitMNIST
 
 valid = []
 for i in range(1, 10, 2)
