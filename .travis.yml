@@ -9,6 +9,8 @@ python:
   - "3.8-dev"  # 3.8 development branch
   - "nightly"  # nightly build
 # command to install dependencies
+before_script:
+  - export PYTHONPATH=$PYTHONPATH:$(pwd)
 install:
   - pip install pytest
   - pip install -r requirements.txt
