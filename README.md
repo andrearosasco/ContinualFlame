@@ -8,7 +8,7 @@ pip install continual-flame
 ```
 ## Usage
 To use the package you just need to import it inside your project.
-```bash
+```python
 import contflame as cf
 ```
 At the moment the package contains just the dataset module.
