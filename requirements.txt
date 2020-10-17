@@ -1,4 +1,4 @@
 torch>=0.1.2
 numpy>=1.16.6
-requests~=2.24.0
-python-mnist~=0.7
+requests>=2.21.0
+python-mnist>=0.7
