@@ -4,7 +4,7 @@ Small lightweight package for Continual Learning in PyTorch.
 ## Installation
 For now the package is hosted on TestPyPi. To install it you just need to run:
 ```bash
-pip install --index-url https://test.pypi.org/simple/ continual-flame
+pip install continual-flame
 ```
 ## Usage
 To use the package you just need to import it inside your project.
