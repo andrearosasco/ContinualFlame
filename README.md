@@ -21,8 +21,8 @@ from contflame.dataset import SplitMNIST
 
 valid = []
 for i in range(1, 10, 2)
-  train_dataset = SplitMNIST(tasks=[i, i+1], dset='train', valid=0.2)
-  valid.append(SplitMNIST(tasks=[i, i+1], dset='valid', valid=0.2))
+  train_dataset = SplitMNIST(classes=[i, i+1], dset='train', valid=0.2)
+  valid.append(SplitMNIST(classes=[i, i+1], dset='valid', valid=0.2))
   
   for e in epochs:
     # train the model on train_dataset
