@@ -42,7 +42,7 @@ def test_split1():
 
     for x in iter(train):
         for y in iter(valid):
-            assert x == y
+            assert x != y
 
 
 def test_split2():
@@ -51,7 +51,7 @@ def test_split2():
 
     for x in iter(train):
         for y in iter(valid):
-            if x != y:
+            if x == y:
                 assert True
                 return
     assert False
@@ -66,4 +66,4 @@ def test_split2():
 #     ds = SplitMNIST(root=root, classes=[0])
 #     print(set([x[1] for x in iter(ds)]))
 
-test_split2()
+test_split1()

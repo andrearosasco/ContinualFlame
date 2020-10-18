@@ -1,12 +1,9 @@
 from pathlib import Path
 from torch.utils.data import Dataset
 from mnist import MNIST
-from functools import reduce
-import pickle
 import numpy as np
 import requests
 import gzip
-import os
 from typing import Union
 
 
@@ -112,10 +109,11 @@ class SplitMNIST(Dataset):
 
     def __getitem__(self, idx):
         (x, y) = self.t[idx]
+
         if self.transform:
             x = self.transform(x)
 
-        return (x, y)
+        return x, y
 
     def add(self, buffer, l):
         b = list(buffer)
