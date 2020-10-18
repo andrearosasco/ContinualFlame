@@ -14,8 +14,12 @@ import contflame as cf
 At the moment the package contains just the dataset module.
 # Dataset
 This module contains datasets normally used in the continual learning scenario. The main ones are:
-- SplitMNIST - contains the standard MNIST dataset but it lets you select the classes to use during training
+- SplitMNIST - MNIST dataset split in classes. It allows to create different subtasks by including custom subsets of classes.
+- PermutedMNIST - permuted MNIST dataset. It allows to choose the shape of the applied permutation.
+- SplitCIFAR100
+- PermutedCIFAR100
 # Examples
+SplitMNIST
 ```python
 from cont_flame.dataset import SplitMNIST
 
@@ -32,3 +36,4 @@ for i in range(1, 10, 2)
     # test the model on the current and the previous tasks
     # ...
 ```
+PermutedMNIST
