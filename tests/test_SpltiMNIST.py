@@ -42,7 +42,7 @@ def test_split1():
 
     for x in iter(train):
         for y in iter(valid):
-            assert np.array_equal(x, y)
+            assert x == y
 
 
 def test_split2():
@@ -51,7 +51,7 @@ def test_split2():
 
     for x in iter(train):
         for y in iter(valid):
-            if np.array_equal(x, y):
+            if x != y:
                 assert True
                 return
     assert False
