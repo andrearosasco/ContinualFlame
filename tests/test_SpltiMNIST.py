@@ -1,5 +1,5 @@
 import pytest
-from cont_flame.dataset import SplitMNIST
+from contflame.dataset import SplitMNIST
 from pathlib import Path
 from itertools import chain, combinations
 
