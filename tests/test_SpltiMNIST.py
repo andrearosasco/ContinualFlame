@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from contflame.dataset import SplitMNIST
 from pathlib import Path
 from itertools import chain, combinations
@@ -41,7 +42,7 @@ def test_split1():
 
     for x in iter(train):
         for y in iter(valid):
-            assert x != y
+            assert np.array_equal(x, y)
 
 
 def test_split2():
@@ -50,7 +51,7 @@ def test_split2():
 
     for x in iter(train):
         for y in iter(valid):
-            if x == y:
+            if np.array_equal(x, y):
                 assert True
                 return
     assert False
@@ -64,3 +65,5 @@ def test_split2():
 # def test():
 #     ds = SplitMNIST(root=root, classes=[0])
 #     print(set([x[1] for x in iter(ds)]))
+
+test_split2()

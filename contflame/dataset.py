@@ -112,7 +112,6 @@ class SplitMNIST(Dataset):
 
     def __getitem__(self, idx):
         (x, y) = self.t[idx]
-        x = np.array(x).reshape((28, 28))
         if self.transform:
             x = self.transform(x)
 
