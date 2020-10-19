@@ -37,7 +37,9 @@ for i in range(1, 10, 2)
     # ...
 ```
 **PermutedMNIST**
+
 To get a random permutation set tile to (1, 1). The same random permutation, selected by the task id, will be applied to all the data points.
+
 ```python
 PermutedMNIST(tile=(1, 1), task=1)
 ```
@@ -49,8 +51,10 @@ PermutedMNIST(tile=(1, 28), task=1)
 ```
 <img style="float: right;" src="https://user-images.githubusercontent.com/47559809/96428444-0e0d8880-1200-11eb-814b-376496129f63.png" width="96">
 Or try to maintain high level spatial feature by setting a bigger tile.
+
 ```python
 PermutedMNIST(tile=(8, 8), task=1)
 ```
 <img style="float: right;" src="https://user-images.githubusercontent.com/47559809/96429174-ef5bc180-1200-11eb-81bf-3bbb1dd6a515.png" width="96">
+
 To get the images without any permutation set the tile to (28, 28) (default value).
