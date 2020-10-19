@@ -1,6 +1,4 @@
-import pytest
-import numpy as np
-from contflame.dataset import SplitMNIST
+from contflame.data.datasets import SplitMNIST
 from pathlib import Path
 from itertools import chain, combinations
 

@@ -1,13 +1,18 @@
+import random
 from pathlib import Path
 
-import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from mnist import MNIST
 import numpy as np
 import requests
 import gzip
-import random
 from typing import Union
+import logging
+from contflame.internals import TqdmToLogger
+from tqdm import tqdm
+
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
 
 class Permute:
@@ -17,6 +22,23 @@ class Permute:
         self.in_size = in_size
 
     def permute(self, img):
+        if self.tile == (1, 1):
+            return self.permute1d(img.reshape(self.in_size[0] * self.in_size[1]))
+        else:
+            return self.permute2d(img)
+
+    def permute1d(self, img):
+        if self.tile != (1, 1):
+            raise ValueError('1d permutation doesn\'t support shaped permutation. tile must be (1, 1)')
+
+        perm = self.perm.reshape(self.in_size[0] * self.in_size[1])
+        aux = img[:]
+
+        for i in range(len(img)):
+            img[perm[i]] = aux[i]
+        return img
+
+    def permute2d(self, img):
         k_rows, k_cols = self.tile
         i_rows, i_cols = self.in_size
         if i_rows != img.shape[0] or i_cols != img.shape[1]:
@@ -63,7 +85,7 @@ class SplitMNIST(Dataset):
     def __init__(self, root:Union[str, Path]='.', dset:str='train', valid:float=0.0, classes:list=None, transform=None):
         """
         Args:
-            root (string): Directory with containing the cifar-100-python directory.
+            root (string): Directory with containing the mnist-python directory.
             meta (bool): True - returns the meta-training dataset, False - returns the meta-test dataset
             train (bool): True - returns the training set, False - returns the test set.
                 Training and test sets are internal to the meta-training and meta-test dataset.
@@ -77,6 +99,7 @@ class SplitMNIST(Dataset):
             if not (root/'mnist-python').is_dir():
                 self._download(root)
             self._setup(root)
+
 
         if dset == 'test':
             data = self.test_data
@@ -125,7 +148,7 @@ class SplitMNIST(Dataset):
             self.t = self.t + b
 
     def _download(self, root):
-        print('Downloading dataset...') # TODO add as logging
+        logger.info('Downloading dataset...')
         (root/'mnist-python').mkdir(parents=True)
 
         for url, fname in zip(self.urls, self.fnames):
@@ -139,7 +162,7 @@ class SplitMNIST(Dataset):
             with (root/'mnist-python'/fn[:-3]).open('wb') as f:
                 f.write(data)
             (root/'mnist-python'/fn).unlink()
-        print('Done!') # TODO add as logging
+        logger.info('Done!')
 
     def _setup(self, root):
         mndata = MNIST(str(root / 'mnist-python'))
@@ -160,13 +183,11 @@ class PermutedMNIST(Dataset):
             'http://yann.lecun.com/exdb/mnist/t10k-labels-idx1-ubyte.gz']
     fnames = ['train-data', 'train-labels', 'test-data', 'test-labels']
 
-    no_classes = 10
-    train_data, test_data = [], []
 
     def __init__(self, root:Union[str, Path]='.', dset:str='train', valid:float=0.0, task:int=0, tile:tuple=(1, 1), transform=None):
         """
         Args:
-            root (string): Directory with containing the cifar-100-python directory.
+            root (string): Directory with containing the mnist-python directory.
             meta (bool): True - returns the meta-training dataset, False - returns the meta-test dataset
             train (bool): True - returns the training set, False - returns the test set.
                 Training and test sets are internal to the meta-training and meta-test dataset.
@@ -177,17 +198,37 @@ class PermutedMNIST(Dataset):
         self.p = Permute((28, 28), tile=tile, seed=1234+task)
 
         # download and uncompress dataset if not present
-        if len(self.train_data) == len(self.test_data) == 0:
-            if not (root/'mnist-python').is_dir():
+
+        if not (root/'mnist-perm'/f'{tile[0]}_{tile[1]}_{task}.pkl').is_file():
+            (root/'mnist-perm').mkdir(exist_ok=True)
+
+            if not (root / 'mnist-python').is_dir():
                 self._download(root)
-            self._setup(root)
+            train_data, test_data = self._setup(root)
+
+            logger.info('Permuting dataset...')
+            for i in range(len(train_data)):
+                x, _ = train_data[i]
+                x = self.p.permute(np.array(x).reshape((28, 28)))
+                train_data[i][0] = x
+            for i in range(len(test_data)):
+                x, _ = test_data[i]
+                x = self.p.permute(np.array(x).reshape((28, 28)))
+                test_data[i][0] = x
+            logger.info('Done!')
+
+            with (root/'mnist-perm'/f'{tile[0]}_{tile[1]}_{task}.pkl').open('wb') as f:
+                pickle.dump((train_data, test_data), f)
+        else:
+            with (root/'mnist-perm'/f'{tile[0]}_{tile[1]}_{task}.pkl').open('rb') as f:
+                train_data, test_data = pickle.load(f)
 
         if dset == 'test':
-            data = self.test_data
+            data = test_data
         elif dset == 'train':
-            data = list(map(lambda x: x[:len(x) - int(len(x)*valid)], self.train_data))
+            data = train_data[:len(train_data) - int(len(train_data)*valid)]
         elif dset == 'valid':
-            data = list(map(lambda x: x[-int(valid*len(x)):], self.train_data))
+            data = train_data[-int(valid*len(train_data)):]
         else:
             raise ValueError(f'Argument type must have one of the following values: (train, test, valid)')
 
@@ -207,7 +248,7 @@ class PermutedMNIST(Dataset):
 
     def __getitem__(self, idx):
         (x, y) = self.t[idx]
-        x = self.p.permute(np.array(x).reshape(28, 28))
+
         if self.transform:
             x = self.transform(x)
 
@@ -220,7 +261,7 @@ class PermutedMNIST(Dataset):
             self.t = self.t + b
 
     def _download(self, root):
-        print('Downloading dataset...') # TODO add as logging
+        logger.info('Downloading dataset...')
         (root/'mnist-python').mkdir(parents=True)
 
         for url, fname in zip(self.urls, self.fnames):
@@ -234,106 +275,120 @@ class PermutedMNIST(Dataset):
             with (root/'mnist-python'/fn[:-3]).open('wb') as f:
                 f.write(data)
             (root/'mnist-python'/fn).unlink()
-        print('Done!') # TODO add as logging
+        logger.info('Done!') # TODO add as logging
 
     def _setup(self, root):
         mndata = MNIST(str(root / 'mnist-python'))
         train_imgs, train_labels = mndata.load_training()
         test_imgs, test_labels = mndata.load_testing()
 
-        for i in range(self.no_classes):
-            self.train_data = [[img, labels] for img, labels in zip(train_imgs, train_labels)]
-            self.test_data = [[img, labels] for img, labels in zip(test_imgs, test_labels)]
+        train_data = [[img, labels] for img, labels in zip(train_imgs, train_labels)]
+        test_data = [[img, labels] for img, labels in zip(test_imgs, test_labels)]
+
+        return train_data, test_data
 
 
-class Buffer:
+from pathlib import Path
+from torch.utils.data import Dataset
+from functools import reduce
+import pickle
+import numpy as np
+import requests
+import tarfile
+import os
 
-    def __init__(self, ds, dim):
-        l = len(ds)
-        r = []
 
-        for i in range(dim):
-            r.append(ds[i])
+class SplitCIFAR100(Dataset):
+    """Split CIFAR-100 dataset."""
 
-        for i in range(dim, l):
-            h = random.randint(0, i)
-            if h < dim:
-                r[h] = ds[i]
-        self.r = r
+    def __init__(self, root='.', meta=False, train=False, tasks=None, transform=None):
+        """
+        Args:
+            root (string): Directory with containing the cifar-100-python directory.
+            meta (bool): True - returns the meta-training dataset, False - returns the meta-test dataset
+            train (bool): True - returns the training set, False - returns the test set.
+                Training and test sets are internal to the meta-training and meta-test dataset.
+            tasks (int): Select the tasks to keep in the dataset. If None all the tasks are used.
+        """
+        root = Path(root)
+        self.transform = transform
 
-    def __getitem__(self, item):
-        return self.r[item]
+        # download and uncompress dataset if not present
+        if not (root / 'cifar-100-python').is_dir():
+            print('Downloading dataset...')
+            url = 'https://www.cs.toronto.edu/~kriz/cifar-100-python.tar.gz'
+            r = requests.get(url)
 
-    def __len__(self):
-        return len(self.r)
+            with (root/'cifar-100-python.tar.gz').open('wb') as f:
+                f.write(r.content)
 
-    def add(self, buffer, l):
-        b = list(buffer)
+            tarfile.open(str(root / 'cifar-100-python.tar.gz'), "r:gz").extractall()
+            (root / "cifar-100-python.tar.gz").unlink()
+            print('Done!')
 
-        for i in range(l):
-            self.r = self.r + b
+        # open and unpickle train or test set
+        if train:
+            with (root / 'cifar-100-python/train').open('rb') as fo:
+                data = pickle.load(fo)
+        else:
+            with (root / 'cifar-100-python/test').open('rb') as fo:
+                data = pickle.load(fo)
 
-class MultiLoader:
+        # transform dictionary in list of (x, y) pairs
+        data = np.array([[d, l] for d, l in zip(data[b'data'], data[b'fine_labels'])])
 
-    def __init__(self, datasets: list, batch_size: Union[int, list]):
-        '''
-        Extension of the PyTorch dataloader. The main feature is the ability
-        to create the returned minibatches by sampling from different datasets.
-        The iterator stops returning elements when each of them was returned at least once.
-        e.g. If dataset A has 1000 elements, dataset B has 100 and we specify batch_size=10
-             each mini batch will contain 5 elements from dataset A and 5 from dataset B.
-             A total of 2000 elements will be returned, the elements from dataset A will be
-             returned just once, the elements from dataset B will be returned multiple times.
-             In this case, as long as the batch_size <= 200 there won't be repated elements
-             inside the mini batch.
+        split = []
+        for i in range(0, 100, 2):
+            split.append(list(filter(lambda x: x[1] in [i, i + 1], data)))
+        split = np.array(split)
 
-        :param datasets: list of datasets used to create the minibatches.
-        :param batch_size: if it's an int batches of the specified size
-            are returned. The returned batches are composed by sampling
-            from each dataset batch_size / len(datasets) elements.
-            If batch_size is a list it can be used to specify how many
-            elements to sample from each dataset.
-        '''
-        self.datasets = []
-        self.no_datasets = len(datasets)
-        self.no_steps = 0
-        self.actual_steps = 0
+        # if meta:
+        #     split = split[:-20]
+        # else:
+        #     split = split[-20:]
 
-        if type(batch_size) == int:
-            b = batch_size
-            batch_size = [int(b / self.no_datasets) for x in range(self.no_datasets)]
-
-        for i, ds in enumerate(datasets):
-            dl = DataLoader(ds, batch_size=batch_size[i], shuffle=True, pin_memory=True)
-            self.no_steps = len(dl) if len(dl) > self.no_steps else self.no_steps
-            self.datasets.append(dl)
-
-    def __next__(self):
-        if self.actual_steps == self.no_steps:
-            raise StopIteration
-
-        batch_in = batch_out = None
-
-        for i in range(len(self.iters)):
-            try:
-                x, y = next(self.iters[i])
-
-            except StopIteration:
-                self.iters[i] = self.datasets[i].__iter__()
-                x, y = next(self.iters[i])
-            batch_in = torch.cat((batch_in, x)) if batch_in != None else x
-            batch_out = torch.cat((batch_out, y)) if batch_out != None else y
-
-        self.actual_steps += 1
-        return batch_in, batch_out
-
-    def __iter__(self):
-        self.iters = []
-
-        for ds in self.datasets:
-            self.iters.append(ds.__iter__())
-
-        return self
+        if tasks != None and max(tasks) >= len(split):
+            print('Error: task index higher then number of tasks (#tasks=' + str(len(split) - 1) + ')')
+        # select the required tasks
+        if tasks == None:
+            tasks = range(len(split))
+        self.t = reduce(lambda x, y: np.concatenate((x, y)), split[tasks])
 
     def __len__(self):
-        return self.no_steps
+        return len(self.t)
+
+    def __getitem__(self, idx):
+        (x, y) = self.t[idx]
+
+        x = x.reshape((32, 32, 3))
+        if self.transform:
+            x = self.transform(x)
+
+        return (x, y)
+
+import torchvision.transforms as transforms
+import torch
+from tqdm import tqdm
+from contflame.data.utils import MultiLoader
+
+if __name__ == '__main__':
+    logging.basicConfig(format='%(asctime)s [%(levelname)-8s] %(message)s')
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    transform = transforms.Compose(
+        [
+            lambda x: torch.FloatTensor(x),
+            lambda x: x.reshape((28, 28)),
+            lambda x: x.unsqueeze(0)
+        ])
+    trainset = PermutedMNIST(dset='train', valid=0.2, transform=transform, task=0, tile=(1, 1))
+    validset = PermutedMNIST(dset='valid', valid=0.2, transform=transform, task=0, tile=(1, 1))
+    # trainset = SplitMNIST(dset='train', valid=0.0, transform=transform, classes=list(range(10)))
+    print(len(trainset))
+    print(len(validset))
+
+    loader = MultiLoader([trainset], batch_size=256)
+    for x, y in tqdm(loader):
+        pass
+
