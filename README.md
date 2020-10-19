@@ -20,6 +20,8 @@ This module contains datasets normally used in the continual learning scenario. 
 - PermutedCIFAR100
 # Examples
 **SplitMNIST**
+
+In the following example the training tasks are five binary classification tasks on subsequent pairs of digit (i.e task 1 (0, 1), task 2 (2, 3), ...)
 ```python
 from cont_flame.dataset import SplitMNIST
 
