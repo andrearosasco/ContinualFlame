@@ -19,7 +19,7 @@ This module contains datasets normally used in the continual learning scenario. 
 - SplitCIFAR100
 - PermutedCIFAR100
 # Examples
-SplitMNIST
+**SplitMNIST**
 ```python
 from cont_flame.dataset import SplitMNIST
 
@@ -36,4 +36,21 @@ for i in range(1, 10, 2)
     # test the model on the current and the previous tasks
     # ...
 ```
-PermutedMNIST
+**PermutedMNIST**
+To get a random permutation set tile to (1, 1). The same random permutation, selected by the task id, will be applied to all the data points.
+```python
+PermutedMNIST(tile=(1, 1), task=1)
+```
+<img style="float: right;" src="https://user-images.githubusercontent.com/47559809/96425928-da7d2f00-11fc-11eb-95d9-8035dde0e333.png" width="96">
+You can also apply the permutation row (or column) wise by setting the corresponding dimension of the tile equal to the one of the image
+
+```python
+PermutedMNIST(tile=(1, 28), task=1)
+```
+<img style="float: right;" src="https://user-images.githubusercontent.com/47559809/96428444-0e0d8880-1200-11eb-814b-376496129f63.png" width="96">
+Or try to maintain high level spatial feature by setting a bigger tile.
+```python
+PermutedMNIST(tile=(8, 8), task=1)
+```
+<img style="float: right;" src="https://user-images.githubusercontent.com/47559809/96429174-ef5bc180-1200-11eb-81bf-3bbb1dd6a515.png" width="96">
+To get the images without any permutation set the tile to (28, 28) (default value).
