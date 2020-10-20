@@ -377,7 +377,6 @@ class SplitCIFAR100(Dataset):
 
 import torchvision.transforms as transforms
 import torch
-from tqdm import tqdm
 from contflame.data.utils import MultiLoader
 
 if __name__ == '__main__':
@@ -398,6 +397,4 @@ if __name__ == '__main__':
     print(set([y for x, y in iter(trainset)]))
 
     loader = MultiLoader([trainset], batch_size=256)
-    for x, y in tqdm(loader):
-        pass
 
