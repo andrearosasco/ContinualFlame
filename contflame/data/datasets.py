@@ -8,8 +8,7 @@ import requests
 import gzip
 from typing import Union
 import logging
-from contflame.internals import TqdmToLogger
-from tqdm import tqdm
+import pickle
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -288,20 +287,17 @@ class PermutedMNIST(Dataset):
         return train_data, test_data
 
 
-from pathlib import Path
-from torch.utils.data import Dataset
 from functools import reduce
-import pickle
-import numpy as np
-import requests
 import tarfile
-import os
 
 
 class SplitCIFAR100(Dataset):
     """Split CIFAR-100 dataset."""
 
-    def __init__(self, root='.', meta=False, train=False, tasks=None, transform=None):
+    train_data, test_data = [], []
+    no_classes = 100
+
+    def __init__(self, root:Union[str, Path]='.', dset:str='train', valid:float=0.0, classes:list=None, transform=None):
         """
         Args:
             root (string): Directory with containing the cifar-100-python directory.
@@ -314,45 +310,59 @@ class SplitCIFAR100(Dataset):
         self.transform = transform
 
         # download and uncompress dataset if not present
-        if not (root / 'cifar-100-python').is_dir():
-            print('Downloading dataset...')
-            url = 'https://www.cs.toronto.edu/~kriz/cifar-100-python.tar.gz'
-            r = requests.get(url)
+        if len(self.train_data) == 0 or len(self.test_data) == 0:
+            if not (root / 'cifar-100-python').is_dir():
+                self._download(root)
+            self._setup(root)
 
-            with (root/'cifar-100-python.tar.gz').open('wb') as f:
-                f.write(r.content)
 
-            tarfile.open(str(root / 'cifar-100-python.tar.gz'), "r:gz").extractall()
-            (root / "cifar-100-python.tar.gz").unlink()
-            print('Done!')
+        if dset == 'test':
+            data = self.test_data
+        elif dset == 'train':
+            data = list(map(lambda x: x[:len(x) - int(len(x)*valid)], self.train_data))
+        elif dset == 'valid':
+            data = list(map(lambda x: x[-int(valid*len(x)):], self.train_data))
 
-        # open and unpickle train or test set
-        if train:
-            with (root / 'cifar-100-python/train').open('rb') as fo:
-                data = pickle.load(fo)
-        else:
-            with (root / 'cifar-100-python/test').open('rb') as fo:
-                data = pickle.load(fo)
 
-        # transform dictionary in list of (x, y) pairs
-        data = np.array([[d, l] for d, l in zip(data[b'data'], data[b'fine_labels'])])
+        # select the specified tasks
+        if classes != None and max(classes) >= self.no_classes:
+            print('Error: Class index higher then number of classes (#classes=' + str(len(data) - 1) + ')')
+        # select all the tasks (joint training)
 
-        split = []
-        for i in range(0, 100, 2):
-            split.append(list(filter(lambda x: x[1] in [i, i + 1], data)))
-        split = np.array(split)
+        if classes == None:
+            classes = range(len(data))
 
-        # if meta:
-        #     split = split[:-20]
-        # else:
-        #     split = split[-20:]
+        t = []
+        for i in range(len(data)):
+            if i in classes:
+                t += data[i]
 
-        if tasks != None and max(tasks) >= len(split):
-            print('Error: task index higher then number of tasks (#tasks=' + str(len(split) - 1) + ')')
-        # select the required tasks
-        if tasks == None:
-            tasks = range(len(split))
-        self.t = reduce(lambda x, y: np.concatenate((x, y)), split[tasks])
+        self.t = t
+        self.l = len(self.t)
+
+
+    def _download(self, root):
+        logger.info('Downloading dataset...')
+        url = 'https://www.cs.toronto.edu/~kriz/cifar-100-python.tar.gz'
+        r = requests.get(url)
+
+        with (root / 'cifar-100-python.tar.gz').open('wb') as f:
+            f.write(r.content)
+
+        tarfile.open(str(root / 'cifar-100-python.tar.gz'), "r:gz").extractall()
+        (root / "cifar-100-python.tar.gz").unlink()
+        logger.info('Done!')
+
+    def _setup(self, root):
+        with (root / 'cifar-100-python/train').open('rb') as f:
+            train = pickle.load(f, encoding='bytes')
+        with (root / 'cifar-100-python/test').open('rb') as f:
+            test = pickle.load(f, encoding='bytes')
+
+        for i in range(self.no_classes):
+            self.train_data.append(list((filter(lambda x: x[1] == i, zip(train[b'data'], train[b'fine_labels'])))))
+            self.test_data.append(list((filter(lambda x: x[1] == i, zip(test[b'data'], test[b'fine_labels'])))))
+
 
     def __len__(self):
         return len(self.t)
@@ -360,7 +370,6 @@ class SplitCIFAR100(Dataset):
     def __getitem__(self, idx):
         (x, y) = self.t[idx]
 
-        x = x.reshape((32, 32, 3))
         if self.transform:
             x = self.transform(x)
 
@@ -379,14 +388,14 @@ if __name__ == '__main__':
     transform = transforms.Compose(
         [
             lambda x: torch.FloatTensor(x),
-            lambda x: x.reshape((28, 28)),
-            lambda x: x.unsqueeze(0)
         ])
-    trainset = PermutedMNIST(dset='train', valid=0.2, transform=transform, task=0, tile=(1, 1))
-    validset = PermutedMNIST(dset='valid', valid=0.2, transform=transform, task=0, tile=(1, 1))
+    trainset = SplitCIFAR100(dset='train', valid=0.2, transform=transform, classes=[0])
+    validset = SplitCIFAR100(dset='valid', valid=0.2, transform=transform, classes=[0])
     # trainset = SplitMNIST(dset='train', valid=0.0, transform=transform, classes=list(range(10)))
     print(len(trainset))
     print(len(validset))
+
+    print(set([y for x, y in iter(trainset)]))
 
     loader = MultiLoader([trainset], batch_size=256)
     for x, y in tqdm(loader):

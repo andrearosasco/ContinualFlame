@@ -100,6 +100,7 @@ class Buffer:
 
 from contflame.data.datasets import SplitMNIST
 from torchvision import transforms
+
 if __name__ == '__main__':
     transform = transforms.Compose(
         [
