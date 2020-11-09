@@ -29,11 +29,16 @@ class MultiLoader:
         self.datasets = []
         self.no_datasets = len(datasets)
         self.no_steps = 0
-        self.actual_steps = 0
 
         if type(batch_size) == int:
             b = batch_size
-            batch_size = [int(b / self.no_datasets) for x in range(self.no_datasets)]
+            q = int(batch_size / len(datasets))
+            r = batch_size % len(datasets)
+            batch_size = [q + 1 if x < r else q for x in range(self.no_datasets)]
+            assert sum(batch_size) == b
+
+
+        self.batch_size = batch_size
 
         for i, ds in enumerate(datasets):
             dl = DataLoader(ds, batch_size=batch_size[i], shuffle=True, pin_memory=True)
@@ -47,12 +52,19 @@ class MultiLoader:
         batch_in = batch_out = None
 
         for i in range(len(self.iters)):
-            try:
-                x, y = next(self.iters[i])
+            x = y = None
+            while x is None or x.size(0) < self.batch_size[i]:
+                try:
+                    inp, out = next(self.iters[i])
+                    x = torch.cat((x, inp)) if x is not None else inp
+                    y = torch.cat((y, out)) if y is not None else out
 
-            except StopIteration:
-                self.iters[i] = self.datasets[i].__iter__()
-                x, y = next(self.iters[i])
+                except StopIteration:
+                    self.iters[i] = self.datasets[i].__iter__()
+
+            x = x[:self.batch_size[i]]
+            y = y[:self.batch_size[i]]
+
             batch_in = torch.cat((batch_in, x)) if batch_in != None else x
             batch_out = torch.cat((batch_out, y)) if batch_out != None else y
 
@@ -61,6 +73,7 @@ class MultiLoader:
 
     def __iter__(self):
         self.iters = []
+        self.actual_steps = 0
 
         for ds in self.datasets:
             self.iters.append(ds.__iter__())
@@ -73,7 +86,8 @@ class MultiLoader:
 
 class Buffer:
 
-    def __init__(self, ds, dim):
+    def __init__(self, ds, dim, transform=None):
+        self.transform = transform
         l = len(ds)
         r = []
 
@@ -87,7 +101,12 @@ class Buffer:
         self.r = r
 
     def __getitem__(self, item):
-        return self.r[item]
+        (x, y) = self.r[item]
+
+        if self.transform:
+            x = self.transform(x)
+
+        return (x, y)
 
     def __len__(self):
         return len(self.r)
@@ -98,24 +117,3 @@ class Buffer:
         for i in range(l):
             self.r = self.r + b
 
-from contflame.data.datasets import SplitMNIST
-from torchvision import transforms
-
-if __name__ == '__main__':
-    transform = transforms.Compose(
-        [
-            lambda x: torch.FloatTensor(x),
-            lambda x: x.reshape((28, 28)),
-            lambda x: x.unsqueeze(0)
-        ])
-
-    tasks = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
-    memories = []
-    for t in range(len(tasks)):
-        trainset = SplitMNIST(dset='train', valid=0.2, transform=transform, classes=tasks[t])
-
-        m = Buffer(trainset, 100)
-        trainloader = MultiLoader([trainset] + memories, batch_size=256)
-
-        # for x, y in trainloader:
-        #     pass
