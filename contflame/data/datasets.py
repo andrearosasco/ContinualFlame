@@ -1,7 +1,7 @@
-import random
+import copy
+
 from pathlib import Path
 
-from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 from mnist import MNIST
 import numpy as np
@@ -13,7 +13,6 @@ import pickle
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
-
 
 class Permute:
     def __init__(self, in_size: tuple, tile: tuple = (1, 1), seed=1234):
@@ -27,12 +26,22 @@ class Permute:
         else:
             return self.permute2d(img)
 
+    def unpermute(self, img):
+        if self.tile != (1, 1):
+            raise ValueError('1d permutation doesn\'t support shaped permutation. tile must be (1, 1)')
+
+        perm = self.perm.reshape(self.in_size[0] * self.in_size[1])
+        aux = copy.deepcopy(img)
+        for i in range(len(img)):
+            img[i] = aux[perm[i]]
+        return img
+
     def permute1d(self, img):
         if self.tile != (1, 1):
             raise ValueError('1d permutation doesn\'t support shaped permutation. tile must be (1, 1)')
 
         perm = self.perm.reshape(self.in_size[0] * self.in_size[1])
-        aux = img[:]
+        aux = copy.deepcopy(img)
 
         for i in range(len(img)):
             img[perm[i]] = aux[i]
@@ -104,9 +113,9 @@ class SplitMNIST(Dataset):
         if dset == 'test':
             data = self.test_data
         elif dset == 'train':
-            data = list(map(lambda x: x[:len(x) - int(len(x) * valid)], self.train_data))
+            data = list(map(lambda x: x[:len(x) - int(round(len(x) * valid))], self.train_data))
         elif dset == 'valid':
-            data = list(map(lambda x: x[-int(valid * len(x)):], self.train_data))
+            data = list(map(lambda x: x[-int(round(valid * len(x))):], self.train_data))
 
         # if meta is not None:
         #     if meta:
@@ -184,7 +193,7 @@ class PermutedMNIST(Dataset):
     fnames = ['train-data', 'train-labels', 'test-data', 'test-labels']
 
     def __init__(self, root: Union[str, Path] = '.', dset: str = 'train', valid: float = 0.0, task: int = 0,
-                 tile: tuple = (1, 1), transform=None):
+                 tile: tuple = (1, 1), seed=1234, transform=None):
         """
         Args:
             root (string): Directory with containing the mnist-python directory.
@@ -195,7 +204,7 @@ class PermutedMNIST(Dataset):
         """
         root = Path(root)
         self.transform = transform
-        self.p = Permute((28, 28), tile=tile, seed=1234 + task)
+        self.p = Permute((28, 28), tile=tile, seed=seed + task)
 
         # download and uncompress dataset if not present
 
@@ -388,6 +397,7 @@ class SplitCIFAR10(Dataset):
 
         return (x, y)
 
+
 class SplitCIFAR100(Dataset):
     base_folder = 'cifar-100-python'
     url = "https://www.cs.toronto.edu/~kriz/cifar-100-python.tar.gz"
@@ -480,44 +490,316 @@ class SplitCIFAR100(Dataset):
         return (x, y)
 
 
+class IncCIFAR100(Dataset):
+    base_folder = 'cifar-100-python'
+    url = "https://www.cs.toronto.edu/~kriz/cifar-100-python.tar.gz"
+    filename = "cifar-100-python.tar.gz"
+    label = b'fine_labels'
+
+    train_batches = 'train'
+    test_batch = 'test'
+
+    no_classes = 10
+    train_data, test_data = [], []
+
+    def __init__(self, root: Union[str, Path] = '.', dset: str = 'train', valid: float = 0.0, task: int = 0, k: int=10,
+                 transform=None):
+        """
+        Args:
+            root (string): Directory with containing the cifar-100-python directory.
+            meta (bool): True - returns the meta-training dataset, False - returns the meta-test dataset
+            train (bool): True - returns the training set, False - returns the test set.
+                Training and test sets are internal to the meta-training and meta-test dataset.
+            tasks (int): Select the tasks to keep in the dataset. If None all the tasks are used.
+            k (int): 10 - number of classes in each task
+        """
+        root = Path(root)
+        self.transform = transform
+
+        # download and uncompress dataset if not present
+        if len(self.train_data) == 0 or len(self.test_data) == 0:
+            if not (root / self.base_folder).is_dir():
+                self._download(root)
+            self._setup(root)
+
+        if task >= 5:
+            raise ValueError('task should be lower than 5')
+        if k >= 20:
+            raise ValueError('k should be lower than 5')
+
+        train = self.train_data[task]
+        test = self.test_data[task]
+
+        if dset == 'test':
+            data = test
+        elif dset == 'train':
+            data = list(map(lambda x: x[:len(x) - int(len(x) * valid)], train))
+        elif dset == 'valid':
+            data = list(map(lambda x: x[-int(valid * len(x)):], train))
+        else: raise ValueError('dset values not in [test, train valid]')
+
+        data = data[:k]
+        # select the specified tasks
+        # select all the tasks (joint training)
+
+        t = []
+        for i in range(k):
+            t += data[i]
+
+        self.t = t
+        self.l = len(self.t)
+
+    def _download(self, root):
+        logger.info('Downloading dataset...')
+        r = requests.get(self.url)
+
+        with (root / self.filename).open('wb') as f:
+            f.write(r.content)
+
+        tarfile.open(str(root / self.filename), "r:gz").extractall()
+        (root / self.filename).unlink()
+        logger.info('Done!')
+
+    def _setup(self, root):
+        data, target = [], []
+        with (root / self.base_folder / 'train').open('rb') as f:
+            train = pickle.load(f, encoding='bytes')
+            # data.extend(batch[b'data'])
+            # target.extend(batch[self.label])
+
+        with (root / self.base_folder / self.test_batch).open('rb') as f:
+            test = pickle.load(f, encoding='bytes')
+
+        self.train_data = self._split_fine_labels(train)
+        self.test_data = self._split_fine_labels(test)
+
+
+    def _split_fine_labels(self, dset):
+        coarse_fine = []
+        _, _, fine, coarse, data = dset.values()
+
+        for c in range(20):
+            aux = list(filter(lambda x: x[1] == c, zip(data, coarse, fine)))
+            coarse_fine.append(list(set([x[2] for x in aux])))  # fine labels grouped over coarse labesl
+
+        tasks = []
+        for f in range(5):
+            tasks.append([])
+            for c in range(20):
+                l = coarse_fine[c][f]
+                tasks[f].append(list(filter(lambda x: x[2] == l, zip(data, coarse, fine))))
+
+        return tasks
+
+    def __len__(self):
+        return len(self.t)
+
+    def __getitem__(self, idx):
+        x, y, _ = self.t[idx]
+
+        if self.transform:
+            x = self.transform(x)
+
+        return (x, y)
+
+
+class SplitFashionMNIST(Dataset):
+    """Split FashionMNIST"""
+
+    urls = ['http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/train-images-idx3-ubyte.gz',
+            'http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/train-labels-idx1-ubyte.gz',
+            'http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/t10k-images-idx3-ubyte.gz',
+            'http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/t10k-labels-idx1-ubyte.gz']
+    fnames = ['train-data', 'train-labels', 'test-data', 'test-labels']
+
+    no_classes = 10
+    train_data, test_data = [], []
+
+    def __init__(self, root: Union[str, Path] = '.', dset: str = 'train', valid: float = 0.0, classes: list = None,
+                 transform=None):
+        """
+        Args:
+            root (string): Directory with containing the mnist-python directory.
+            meta (bool): True - returns the meta-training dataset, False - returns the meta-test dataset
+            train (bool): True - returns the training set, False - returns the test set.
+                Training and test sets are internal to the meta-training and meta-test dataset.
+            tasks (int): Select the tasks to keep in the dataset. If None all the tasks are used.
+        """
+        root = Path(root)
+        self.transform = transform
+
+        # download and uncompress dataset if not present
+        if len(self.train_data) == len(self.test_data) == 0:
+            if not (root / 'fashion-mnist-python').is_dir():
+                self._download(root)
+            self._setup(root)
+
+        if dset == 'test':
+            data = self.test_data
+        elif dset == 'train':
+            data = list(map(lambda x: x[:len(x) - int(round(len(x) * valid))], self.train_data))
+        elif dset == 'valid':
+            data = list(map(lambda x: x[-int(round(valid * len(x))):], self.train_data))
+
+        # if meta is not None:
+        #     if meta:
+        #         split = split[:-2]
+        #     else:
+        #         split = split[-2:]
+
+        # select the specified tasks
+        if classes != None and max(classes) >= self.no_classes:
+            print('Error: Class index higher then number of classes (#classes=' + str(len(data) - 1) + ')')
+        # select all the tasks (joint training)
+
+        if classes == None:
+            classes = range(len(data))
+
+        t = []
+        for i in range(len(data)):
+            if i in classes:
+                t += data[i]
+
+        self.t = t
+        self.l = len(self.t)
+
+    def __len__(self):
+        return len(self.t)
+
+    def __getitem__(self, idx):
+        (x, y) = self.t[idx]
+
+        if self.transform:
+            x = self.transform(x)
+
+        return x, y
+
+    def add(self, buffer, l):
+        b = list(buffer)
+
+        for i in range(l):
+            self.t = self.t + b
+
+    def _download(self, root):
+        logger.info('Downloading dataset...')
+        (root / 'fashion-mnist-python').mkdir(parents=True)
+
+        for url, fname in zip(self.urls, self.fnames):
+            r = requests.get(url)
+            fn = url.split('/')[-1]
+
+            with (root / 'fashion-mnist-python' / fn).open('wb') as f:
+                f.write(r.content)
+            with gzip.open(str(root / 'fashion-mnist-python' / fn), 'rb') as f:
+                data = f.read()
+            with (root / 'fashion-mnist-python' / fn[:-3]).open('wb') as f:
+                f.write(data)
+            (root / 'fashion-mnist-python' / fn).unlink()
+        logger.info('Done!')
+
+    def _setup(self, root):
+        mndata = MNIST(str(root / 'fashion-mnist-python'))
+        train_imgs, train_labels = mndata.load_training()
+        test_imgs, test_labels = mndata.load_testing()
+
+        for i in range(self.no_classes):
+            self.train_data.append(list((filter(lambda x: x[1] == i, zip(train_imgs, train_labels)))))
+            self.test_data.append(list((filter(lambda x: x[1] == i, zip(test_imgs, test_labels)))))
+
+
+
 import torchvision.transforms as transforms
 import torch
 from contflame.data.utils import MultiLoader, Buffer
+import wandb
 
-if __name__ == '__main__':
-    logging.basicConfig(format='%(asctime)s [%(levelname)-8s] %(message)s')
-    logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
+def print_images(imgs, trgs, mean, std, depth, name, perm=None):
+    imgs = copy.deepcopy(imgs)
+    global w
+    for img, trg in zip(imgs, trgs):
+        label = trg.item()
+        print(label)
 
-    train_transform = transforms.Compose(
-        [
-            lambda x: Image.fromarray(x.reshape((3, 32, 32)).transpose((1, 2, 0))),
-            transforms.ToTensor(),
-            transforms.Normalize(np.array([125.3, 123.0, 113.9]) / 255.0, np.array([63.0, 62.1, 66.7]) / 255.0)
-        ])
+        img = img.cpu().detach().numpy()
 
-    test_transform = transforms.Compose(
-        [
-            lambda x: Image.fromarray(x.reshape((3, 32, 32)).transpose((1, 2, 0))),
-            transforms.ToTensor(),
-            transforms.Normalize(np.array([125.3, 123.0, 113.9]) / 255.0, np.array([63.0, 62.1, 66.7]) / 255.0)
-        ])
+        img = img.reshape((1, 28, 28))
 
-    task = list(range(1))
-    trainsets = []
-    memories = []
+        std = [std[0] for _ in range(img.shape[0])] if len(std) == 1 else std
+        mean = [mean[0] for _ in range(img.shape[0])] if len(mean) == 1 else mean
 
-    for t in task:
-        trainsets.append(SplitCIFAR100(dset='train', valid=0.2, transform=train_transform, classes=[t]))
+        for i in range(img.shape[0]):
+            img[i] = img[i] * std[i] + mean[i]
 
-    for m in range(1, 100):
-        memories.append(Buffer(SplitCIFAR100(dset='train', valid=0.2, transform=train_transform, classes=[m]), 40))
+        img = img * depth
+        img = np.transpose(img, (1, 2, 0))
+        img = np.squeeze(img)
+        img = img.astype(np.uint8)
 
-    l = MultiLoader(trainsets + memories, batch_size=128)
-    for j, (x, y) in enumerate(l):
-        print(f'batch {j}')
-        # for i in range(100):
-        #     pass
-        #     print(f'{i} -> {len(list(filter(lambda x: x == i, y)))}')
+        wandb.log({f'{name}_{label}':[wandb.Image(img, caption=f"{label}")]})
 
-        print()
+        # plt.imsave(f'./img{w}_{label}.png', img)
+
+
+# if __name__ == '__main__':
+#     ds = IncCIFAR100(dset='train', valid=0.2, transform=None, task=0, k=10)
+
+#     wandb.init(project="cont-distill-pmnist", name='test')
+#     logging.basicConfig(format='%(asctime)s [%(levelname)-8s] %(message)s')
+#     logger = logging.getLogger()
+#     logger.setLevel(logging.DEBUG)
+#
+#     seed = 1234
+#     torch.manual_seed(seed)
+#     np.random.seed(seed)
+#     random.seed(seed)
+#
+#     train_transform = transforms.Compose(
+#         [
+#             lambda x: torch.FloatTensor(x),
+#             lambda x: x / 255.0,
+#             lambda x: (x - 0.1307) / 0.3081,])
+#
+#     test_transform = transforms.Compose(
+#         [
+#             lambda x: torch.FloatTensor(x),
+#             lambda x: x / 255.0,
+#             lambda x: (x - 0.1307) / 0.3081,])
+#
+#     # perm = Permute((28, 28), (1, 1), 1234)
+#     # ds = SplitMNIST(dset='train', valid=0.2, transform=train_transform)
+#     # l = MultiLoader([ds], batch_size=128)
+#     # x, y = next(iter(l))
+#     # x, y = x[0:1], y[0:1]
+#     #
+#     # print_images(x, y, [0.1307], [0.3081], 'start')
+#     # x = perm.permute(x.reshape(28, 28))
+#     # x = x.reshape(1, 784)
+#     # print_images(x, y, [0.1307], [0.3081], 'perm')
+#     # x = perm.unpermute(x[0])
+#     # x = x.reshape(1, 784)
+#     # print_images(x, y, [0.1307], [0.3081], 'unperm')
+#
+#     # PermtedMNIST
+#     ds1 = PermutedMNIST(dset='train', valid=0.2, transform=train_transform, task=0)
+#     ds2 = PermutedMNIST(dset='train', valid=0.2, transform=train_transform, task=1)
+#     perm1 = ds1.p
+#     perm2 = ds2.p
+#
+#     l1 = MultiLoader([ds1], batch_size=128)
+#     x1, y1 = next(iter(l1))
+#     x1, y1 = x1[0:1], y1[0:1]
+#
+#     l2 = MultiLoader([ds2], batch_size=128)
+#     x2, y2 = next(iter(l2))
+#     x2, y2 = x2[0:1], y2[0:1]
+#
+#     print_images(x1, y1, [0.1307], [0.3081], 255, 'perm')
+#     x1 = perm2.unpermute(x1[0])
+#     x1 = x1.reshape(1, 784)
+#     print_images(x1, y1, [0.1307], [0.3081], 255, 'unperm')
+#
+#     print_images(x2, y2, [0.1307], [0.3081], 255, 'perm')
+#     x2 = perm1.unpermute(x2[0])
+#     x2 = x2.reshape(1, 784)
+#     print_images(x2, y2, [0.1307], [0.3081], 255, 'unperm')
+#

@@ -91,13 +91,17 @@ class Buffer:
         l = len(ds)
         r = []
 
-        for i in range(dim):
-            r.append(ds[i])
+        if dim < 0:
+            for i in range(len(ds)):
+                r.append(ds[i])
+        else:
+            for i in range(dim):
+                r.append(ds[i])
 
-        for i in range(dim, l):
-            h = random.randint(0, i)
-            if h < dim:
-                r[h] = ds[i]
+            for i in range(dim, l):
+                h = random.randint(0, i)
+                if h < dim:
+                    r[h] = ds[i]
         self.r = r
 
     def __getitem__(self, item):
@@ -108,12 +112,13 @@ class Buffer:
 
         return (x, y)
 
+    def __setitem__(self, key, value):
+        self.r[key] = value
+
     def __len__(self):
         return len(self.r)
 
-    def add(self, buffer, l):
-        b = list(buffer)
-
-        for i in range(l):
-            self.r = self.r + b
+    def __add__(self, buffer):
+        self.r = self.r + list(buffer)
+        return self
 
