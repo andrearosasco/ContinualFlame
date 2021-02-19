@@ -711,7 +711,6 @@ class SplitFashionMNIST(Dataset):
 import torchvision.transforms as transforms
 import torch
 from contflame.data.utils import MultiLoader, Buffer
-import wandb
 
 def print_images(imgs, trgs, mean, std, depth, name, perm=None):
     imgs = copy.deepcopy(imgs)
