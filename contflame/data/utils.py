@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 
 class MultiLoader:
 
-    def __init__(self, datasets: list, batch_size: Union[int, list], pin_memory=False):
+    def __init__(self, datasets: list, batch_size: Union[int, list], pin_memory=True):
         '''
         Extension of the PyTorch dataloader. The main feature is the ability
         to create the returned minibatches by sampling from different datasets.
